@@ -7,6 +7,7 @@ from sklearn.utils.validation import _check_sample_weight
 from scipy.spatial.distance import cdist
 import numpy
 import warnings
+from joblib import parallel_backend, Parallel, delayed
 
 try:
     from sklearn.cluster._kmeans import _kmeans_plusplus
@@ -522,7 +523,7 @@ class TimeSeriesKMeans(TransformerMixin, ClusterMixin,
 
     verbose : int (default: 0)
         If nonzero, print information about the inertia while learning
-        the model and joblib progress messages are printed.  
+        the model and joblib progress messages are printed.
 
     random_state : integer or numpy.RandomState, optional
         Generator used to initialize the centers. If an integer is given, it
@@ -708,23 +709,37 @@ class TimeSeriesKMeans(TransformerMixin, ClusterMixin,
 
     def _update_centroids(self, X):
         metric_params = self._get_metric_params()
+        X_list = []
         for k in range(self.n_clusters):
-            if self.metric == "dtw":
-                self.cluster_centers_[k] = dtw_barycenter_averaging(
-                    X=X[self.labels_ == k],
-                    barycenter_size=None,
-                    init_barycenter=self.cluster_centers_[k],
-                    metric_params=metric_params,
-                    verbose=False)
-            elif self.metric == "softdtw":
-                self.cluster_centers_[k] = softdtw_barycenter(
-                    X=X[self.labels_ == k],
-                    max_iter=self.max_iter_barycenter,
-                    init=self.cluster_centers_[k],
-                    **metric_params)
-            else:
-                self.cluster_centers_[k] = euclidean_barycenter(
-                    X=X[self.labels_ == k])
+           X_list.append(X[self.labels_ == k])
+        cluster_centers = Parallel(backend='threading', prefer='threads', require='sharedmem', n_jobs=self.n_clusters, verbose=5)(delayed(dtw_barycenter_averaging)(
+						X=X_list[k],
+						barycenter_size=None,
+						init_barycenter=self.cluster_centers_[k],
+						metric_params=metric_params, max_iter = 3,
+						verbose=True) for k in range(self.n_clusters))
+        for k in range(self.n_clusters):
+            self.cluster_centers_[k] = cluster_centers[k]
+#    def _update_centroids(self, X):
+#        metric_params = self._get_metric_params()
+#        for k in range(self.n_clusters):
+#            if self.metric == "dtw":
+#                self.cluster_centers_[k] = (dtw_barycenter_averaging(
+#						X=X[self.labels_ == k],
+#						barycenter_size=None,
+#						init_barycenter=self.cluster_centers_[k],
+#						metric_params=metric_params, max_iter = 3,
+#						verbose=False))
+#           elif self.metric == "softdtw":
+#                self.cluster_centers_[k] = softdtw_barycenter(
+#						X=X[self.labels_ == k],
+#						max_iter=self.max_iter_barycenter,
+#						init=self.cluster_centers_[k],
+#						**metric_params)
+#            else:
+#                self.cluster_centers_[k] = euclidean_barycenter(
+#						X=X[self.labels_ == k])
+#        print(self.cluster_centers_[0])
 
     def fit(self, X, y=None):
         """Compute k-means clustering.
@@ -755,7 +770,7 @@ class TimeSeriesKMeans(TransformerMixin, ClusterMixin,
 
         max_attempts = max(self.n_init, 10)
 
-        X_ = to_time_series_dataset(X)
+        X_ = X
         rs = check_random_state(self.random_state)
 
         if isinstance(self.init, str) and self.init == "k-means++" and \

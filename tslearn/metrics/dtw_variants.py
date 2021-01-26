@@ -24,7 +24,7 @@ def _local_squared_dist(x, y):
 @njit()
 def njit_accumulated_matrix(s1, s2, mask):
     """Compute the accumulated cost matrix score between two time series.
-
+    
     Parameters
     ----------
     s1 : array, shape = (sz1,)
